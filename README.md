@@ -42,9 +42,19 @@ Reguli importante:
 - Recordul personal folosește greutatea maximă și 1RM estimat (Epley: kg × (1 + repetări / 30)).
 - Sugestia de progresie apare după 2 antrenamente la rând cu toate repetările țintă: +2,5 kg (corp superior) sau +5 kg (picioare).
 
+## Cărți PDF
+
+În Bibliotecă: „Carte nouă” → „Creează din PDF”, sau meniul unei cărți → „Atașează PDF”. Butonul „Citește PDF” deschide cititorul din aplicație.
+
+- Ține minte pagina unde ai rămas.
+- O pagină se numără ca citită după 8 secunde pe ea, o singură dată. Paginile numărate se notează automat în Bibliotecă, cu XP, misiuni și progresul cărții.
+- Are zoom, mod de noapte, glisare stânga/dreapta și săgeți pe tastatură.
+- PDF-urile stau doar pe dispozitiv (IndexedDB), nu pe Vercel. Limita e de 300 MB pe fișier.
+- Afișarea PDF-urilor folosește PDF.js 4.10.38 de la Mozilla (licență Apache 2.0), inclus în `js/vendor/pdfjs`.
+
 ## Backup
 
-Profil → **Export JSON** salvează toate datele, inclusiv pozele. **Import JSON** le înlocuiește pe cele actuale. Fă export din când în când: dacă ștergi datele browserului, se pierd și datele aplicației.
+Profil → **Export JSON** salvează toate datele, inclusiv pozele. Dacă ai cărți PDF, te întreabă dacă le incluzi. Fără ele, backup-ul e mic; progresul cărților se păstrează oricum. Un import fără PDF-uri le păstrează pe cele deja existente pe dispozitiv. **Import JSON** le înlocuiește pe cele actuale. Fă export din când în când: dacă ștergi datele browserului, se pierd și datele aplicației.
 
 ## Structura codului
 

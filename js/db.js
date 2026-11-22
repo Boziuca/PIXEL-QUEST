@@ -7,18 +7,20 @@ import { uid } from './util.js';
 
 const DB_NAME = 'pixelquest';
 const STORE = 'photos';
+const PDFS = 'pdfs';   // cărți PDF: { id, blob, name, size, created }
 let dbp = null;
 
 function open() {
   if (dbp) return dbp;
   dbp = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         const st = db.createObjectStore(STORE, { keyPath: 'id' });
         st.createIndex('date', 'date');
       }
+      if (!db.objectStoreNames.contains(PDFS)) db.createObjectStore(PDFS, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -26,10 +28,10 @@ function open() {
   return dbp;
 }
 
-function tx(mode, fn) {
+function tx(mode, fn, storeName = STORE) {
   return open().then(db => new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, mode);
-    const st = t.objectStore(STORE);
+    const t = db.transaction(storeName, mode);
+    const st = t.objectStore(storeName);
     let result;
     Promise.resolve(fn(st)).then(r => { result = r; });
     t.oncomplete = () => resolve(result);
@@ -52,6 +54,26 @@ export async function deletePhoto(id) {
   const u = urlCache.get(id); if (u) URL.revokeObjectURL(u); urlCache.delete(id);
 }
 export function clearPhotos() { urlCache.forEach(u => URL.revokeObjectURL(u)); urlCache.clear(); return tx('readwrite', st => st.clear()); }
+
+/* ---------- Cărți PDF ---------- */
+export async function putPdf(p) {
+  const rec = { id: p.id || uid(), created: Date.now(), ...p };
+  await tx('readwrite', st => st.put(rec), PDFS);
+  return rec;
+}
+export function getPdf(id) { return id ? tx('readonly', st => reqP(st.get(id)), PDFS) : Promise.resolve(null); }
+export function allPdfs() { return tx('readonly', st => reqP(st.getAll()), PDFS); }
+export function deletePdf(id) { return id ? tx('readwrite', st => st.delete(id), PDFS) : Promise.resolve(); }
+export function clearPdfs() { return tx('readwrite', st => st.clear(), PDFS); }
+
+/** Cere browserului să nu șteargă datele când are nevoie de spațiu. */
+export async function requestPersist() {
+  try { if (navigator.storage?.persist && !(await navigator.storage.persisted())) await navigator.storage.persist(); } catch { /* */ }
+}
+/** Spațiul folosit de aplicație, în MB (estimare). */
+export async function storageUsedMB() {
+  try { const e = await navigator.storage.estimate(); return { used: (e.usage || 0) / 1048576, quota: (e.quota || 0) / 1048576 }; } catch { return null; }
+}
 
 /* URL-uri obiect reutilizate, ca să nu recreăm blob-uri la fiecare randare */
 const urlCache = new Map();

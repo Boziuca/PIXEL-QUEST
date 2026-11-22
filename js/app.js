@@ -22,6 +22,7 @@ import { renderCalendar } from './screens/calendar.js';
 import { renderStats } from './screens/stats.js';
 import { renderGallery } from './screens/gallery.js';
 import { renderProfile, renderShop, renderAchievements } from './screens/profile.js';
+import { renderReader } from './screens/reader.js';
 
 /* Rutele aplicației → funcția care desenează ecranul */
 const ROUTES = {
@@ -34,6 +35,7 @@ const ROUTES = {
   greutate: renderWeight,
   jurnal: renderJournal,
   carti: renderBooks,
+  citeste: renderReader,
   sarcini: renderTasks,
   obiceiuri: renderHabits,
   sala: renderGym,

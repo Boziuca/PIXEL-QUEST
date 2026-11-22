@@ -4,17 +4,20 @@
    ========================================================= */
 import { state, save, day, peekDay } from '../store.js';
 import { sel, rerender } from '../router.js';
-import { award, revoke, evaluate, pagesTotal } from '../game.js';
-import { bar, screenHead, dateNav, bindDateNav, emptyState, toast, confirmBox, confetti, modal } from '../ui.js';
+import { revoke, evaluate, pagesTotal } from '../game.js';
+import { bar, screenHead, dateNav, bindDateNav, emptyState, toast, confirmBox, modal } from '../ui.js';
 import { icon } from '../icons.js';
 import { esc, fmtNum, uid, num, todayKey } from '../util.js';
-import { hydratePhotos } from '../db.js';
+import { hydratePhotos, deletePdf, storageUsedMB } from '../db.js';
 import { addPhoto, removePhoto } from '../photos.js';
+import { pickPdf, savePdfFile, setBookPdf, removeBookPdf, logPages as logBookPages, finishBook as finishBookLogic } from '../pdfbooks.js';
 import { sfx } from '../audio.js';
 
 let tab = 'curs';
 let showForm = false;
 let pendingCover = null;
+let pendingPdf = null;   // PDF ales în formularul de carte nouă
+const mb = b => (b / 1048576).toFixed(1).replace('.', ',') + ' MB';
 
 function commit() { save(); evaluate(sel.date); rerender(); }
 
@@ -42,6 +45,7 @@ export function renderBooks(view) {
 
     ${showForm ? `<div class="win"><div class="win-title">${icon('plus')} Carte nouă</div>
       <form id="b-form">
+        <button class="btn alt block" type="button" id="b-pdf" style="margin-bottom:10px">${icon('book')} ${pendingPdf ? `PDF: ${esc(pendingPdf.name)} ✓` : 'Creează din PDF (opțional)'}</button>
         <label class="f"><span>Titlu</span><input id="b-title" required maxlength="120"></label>
         <label class="f"><span>Autor</span><input id="b-author" maxlength="80"></label>
         <div class="grid2">
@@ -61,6 +65,7 @@ export function renderBooks(view) {
           <div class="bk-title">${esc(b.title)}</div>
           <div class="muted">${esc(b.author || 'autor necunoscut')}</div>
           <div class="mt">${bar(b.read, b.pages, b.status === 'gata' ? 'bar-good' : 'bar-alt', `${fmtNum(b.read)} / ${fmtNum(b.pages)} · ${p}%`)}</div>
+          ${b.pdfId ? `<a class="btn sm block mt" href="#/citeste/${b.id}">${icon('book')} Citește PDF · pag. ${b.pdfPage || 1}/${b.pdfPages || '?'}</a>` : ''}
           <div class="row mt">
             ${b.status === 'gata' ? `<span class="tag good">TERMINATĂ</span>` : `
               <form class="row nowrap" data-log="${b.id}" style="flex:1">
@@ -71,13 +76,34 @@ export function renderBooks(view) {
           </div>
         </div>
       </div>`;
-    }).join('') : `<div class="win">${emptyState('book', tab === 'curs' ? 'Niciun tom deschis. Adaugă o carte nouă!' : 'Nicio carte terminată încă.')}</div>`}`;
+    }).join('') : `<div class="win">${emptyState('book', tab === 'curs' ? 'Niciun tom deschis. Adaugă o carte nouă!' : 'Nicio carte terminată încă.')}</div>`}
+    <p class="muted small center" id="b-storage"></p>`;
+  storageUsedMB().then(s => {
+    const el = view.querySelector('#b-storage');
+    const n = state.books.filter(b => b.pdfId).length;
+    if (el && s) el.textContent = `${n} ${n === 1 ? 'carte PDF' : 'cărți PDF'} · spațiu folosit de aplicație: ${fmtNum(s.used, 1)} MB din ~${fmtNum(s.quota / 1024, 1)} GB disponibili`;
+  });
 
   view.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { tab = b.dataset.tab; rerender(); }));
   view.querySelector('[data-new]').addEventListener('click', () => { showForm = true; rerender(); view.querySelector('#b-title')?.focus(); });
   const f = view.querySelector('#b-form');
   if (f) {
-    view.querySelector('#b-cancel').addEventListener('click', () => { showForm = false; rerender(); });
+    view.querySelector('#b-cancel').addEventListener('click', async () => {
+      if (pendingPdf) { await deletePdf(pendingPdf.id); pendingPdf = null; }
+      showForm = false; rerender();
+    });
+    view.querySelector('#b-pdf').addEventListener('click', async () => {
+      const info = await savePdfFile(await pickPdf());
+      if (!info) return;
+      if (pendingPdf) await deletePdf(pendingPdf.id);
+      pendingPdf = info;
+      // completăm automat titlul (din numele fișierului) și numărul de pagini
+      const t = view.querySelector('#b-title');
+      if (!t.value.trim()) t.value = info.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim().slice(0, 120);
+      view.querySelector('#b-pages').value = info.pages;
+      view.querySelector('#b-pdf').innerHTML = `${icon('book')} PDF: ${esc(info.name)} ✓ (${info.pages} pag., ${mb(info.size)})`;
+      sfx('tick');
+    });
     view.querySelector('#b-cover').addEventListener('click', async () => {
       const rec = await addPhoto({ tag: 'coperta', caption: view.querySelector('#b-title').value || 'Copertă' });
       if (rec) { pendingCover = rec.id; view.querySelector('#b-cover').innerHTML = `${icon('camera')} Copertă ✓`; }
@@ -85,8 +111,10 @@ export function renderBooks(view) {
     f.addEventListener('submit', e => {
       e.preventDefault();
       const pages = Math.max(1, Math.round(num(view.querySelector('#b-pages').value)));
-      state.books.push({ id: uid(), title: view.querySelector('#b-title').value.trim(), author: view.querySelector('#b-author').value.trim(), pages, read: Math.min(pages, Math.round(num(view.querySelector('#b-read').value))), status: 'curs', coverId: pendingCover, created: todayKey(), finished: null });
-      pendingCover = null; showForm = false; tab = 'curs';
+      const book = { id: uid(), title: view.querySelector('#b-title').value.trim(), author: view.querySelector('#b-author').value.trim(), pages, read: Math.min(pages, Math.round(num(view.querySelector('#b-read').value))), status: 'curs', coverId: pendingCover, created: todayKey(), finished: null };
+      if (pendingPdf) setBookPdf(book, pendingPdf);
+      state.books.push(book);
+      pendingCover = null; pendingPdf = null; showForm = false; tab = 'curs';
       toast('Carte nouă în bibliotecă', { icon: 'book' }); sfx('tick'); commit();
     });
   }
@@ -108,20 +136,9 @@ export function renderBooks(view) {
 
 /** Notează pagini citite într-o carte. */
 function logPages(bookId, n) {
-  const b = state.books.find(x => x.id === bookId); if (!b) return;
-  const real = Math.min(n, b.pages - b.read);
-  if (real <= 0) return;
-  b.read += real;
-  const xp = award('books', Math.min(40, Math.max(1, Math.round(real / 2))), { reason: `${real} pagini din „${b.title}”`, ic: 'book' });
-  day(sel.date).pages.push({ id: uid(), bookId, n: real, xp });
-  if (b.read >= b.pages) finishBook(b);
-  commit();
+  if (logBookPages(bookId, n, sel.date)) commit();
 }
-function finishBook(b) {
-  b.status = 'gata'; b.read = b.pages; b.finished = sel.date;
-  award('books', 100, { reason: `Carte terminată: ${b.title}!`, ic: 'trophy' });
-  confetti(); sfx('quest');
-}
+function finishBook(b) { finishBookLogic(b, sel.date); }
 
 function bookMenu(id) {
   const b = state.books.find(x => x.id === id); if (!b) return;
@@ -132,6 +149,11 @@ function bookMenu(id) {
       <label class="f"><span>Total pagini</span><input id="bm-pages" type="number" min="1" value="${b.pages}"></label>
       <button class="btn block" type="submit">Salvează</button>
     </form>
+    <div class="win tight mt">
+      ${b.pdfId ? `<p class="small">📖 ${esc(b.pdfName || 'PDF')} · ${b.pdfPages || '?'} pag. · ${mb(b.pdfSize || 0)}</p>` : '<p class="small muted">Fără PDF atașat.</p>'}
+      <div class="row"><button class="btn alt sm" id="bm-pdf">${icon('book')} ${b.pdfId ? 'Înlocuiește PDF' : 'Atașează PDF'}</button>
+        ${b.pdfId ? '<button class="btn ghost sm" id="bm-pdf-rm">Scoate PDF</button>' : ''}</div>
+    </div>
     <div class="modal-actions">
       <button class="btn ghost sm" id="bm-cover">${icon('camera')} Schimbă coperta</button>
       ${b.status !== 'gata' ? '<button class="btn good sm" id="bm-finish">Marchează terminată</button>' : '<button class="btn ghost sm" id="bm-reopen">Redeschide</button>'}
@@ -151,12 +173,25 @@ function bookMenu(id) {
         const rec = await addPhoto({ tag: 'coperta', caption: b.title });
         if (rec) { if (b.coverId) await removePhoto(b.coverId); b.coverId = rec.id; close(); commit(); }
       });
+      el.querySelector('#bm-pdf').addEventListener('click', async () => {
+        const info = await savePdfFile(await pickPdf());
+        if (!info) return;
+        await setBookPdf(b, info);
+        if (b.read === 0 && b.pages !== info.pages && await confirmBox(`PDF-ul are ${info.pages} pagini. Actualizez totalul cărții (acum ${b.pages})?`, { ok: 'Da', cancel: 'Nu' })) b.pages = info.pages;
+        toast('PDF atașat', { icon: 'book' }); close(); commit();
+      });
+      el.querySelector('#bm-pdf-rm')?.addEventListener('click', async () => {
+        close();
+        if (!(await confirmBox('Scoți PDF-ul? Cartea și progresul rămân, doar fișierul se șterge de pe dispozitiv.', { ok: 'Scoate', danger: true }))) return;
+        await removeBookPdf(b); sfx('delete'); commit();
+      });
       el.querySelector('#bm-finish')?.addEventListener('click', () => { finishBook(b); close(); commit(); });
       el.querySelector('#bm-reopen')?.addEventListener('click', () => { b.status = 'curs'; b.finished = null; close(); commit(); });
       el.querySelector('#bm-del').addEventListener('click', async () => {
         close();
         if (!(await confirmBox(`Ștergi „${b.title}” din bibliotecă?`, { ok: 'Șterge', danger: true }))) return;
         if (b.coverId) await removePhoto(b.coverId);
+        if (b.pdfId) await deletePdf(b.pdfId);
         state.books = state.books.filter(x => x !== b); sfx('delete'); commit();
       });
     },

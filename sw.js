@@ -4,12 +4,13 @@
    Fonturile Google: salvate în cache la prima folosire.
    Crește VERSION când modifici fișierele aplicației.
    ========================================================= */
-const VERSION = 'pq-v1';
+const VERSION = 'pq-v2';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'js/app.js', 'js/util.js', 'js/db.js', 'js/store.js', 'js/pixel.js', 'js/icons.js', 'js/heroes.js', 'js/audio.js',
-  'js/router.js', 'js/ui.js', 'js/game.js', 'js/charts.js', 'js/photos.js', 'js/backup.js',
+  'js/router.js', 'js/ui.js', 'js/game.js', 'js/charts.js', 'js/photos.js', 'js/backup.js', 'js/pdfbooks.js',
+  'js/vendor/pdfjs/pdf.min.mjs', 'js/vendor/pdfjs/pdf.worker.min.mjs', 'js/screens/reader.js',
   'js/data/exercises.js', 'js/data/habits-default.js',
   'js/screens/heroselect.js', 'js/screens/map.js', 'js/screens/dashboard.js', 'js/screens/trackers.js',
   'js/screens/books.js', 'js/screens/tasks.js', 'js/screens/habits.js', 'js/screens/gym.js',

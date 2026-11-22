@@ -8,8 +8,8 @@ import { levelInfo, ACHIEVEMENTS, currentStreak, evaluate } from '../game.js';
 import { screenHead, heroStage, toast, confirmBox, modal, bar } from '../ui.js';
 import { icon } from '../icons.js';
 import { esc, fmtNum, fmtDate, num } from '../util.js';
-import { exportJSON, readBackup, importBackup } from '../backup.js';
-import { clearPhotos } from '../db.js';
+import { exportJSON, readBackup, importBackup, pdfsSize } from '../backup.js';
+import { clearPhotos, clearPdfs } from '../db.js';
 import { sfx } from '../audio.js';
 
 const FORM_NAMES = ['Ucenic', 'Veteran', 'Legendar'];
@@ -101,9 +101,24 @@ export function renderProfile(view) {
     save(); rerender();
   });
   $('#p-rest').addEventListener('change', e => { s.restSec = Math.min(600, Math.max(15, Math.round(num(e.target.value)) || 90)); save(); });
+  const doExport = async withPdfs => {
+    toast('Se pregătește backup-ul…', { icon: 'download' });
+    try { const r = await exportJSON({ withPdfs }); toast(`Backup creat (${r.photos} poze${withPdfs ? `, ${r.pdfs} PDF-uri` : ''}, ${(r.bytes / 1048576).toFixed(1)} MB)`, { icon: 'download' }); }
+    catch (e) { console.error(e); toast('Exportul a eșuat (poate e prea mare)', { icon: 'lock' }); }
+  };
   $('#p-export').addEventListener('click', async () => {
-    try { const r = await exportJSON(); toast(`Backup creat (${r.photos} poze, ${(r.bytes / 1024 / 1024).toFixed(1)} MB)`, { icon: 'download' }); }
-    catch (e) { console.error(e); toast('Exportul a eșuat', { icon: 'lock' }); }
+    const size = await pdfsSize();
+    if (!size) { doExport(false); return; }
+    modal(`<h2>Export JSON</h2>
+      <p>Ai cărți PDF salvate (${(size / 1048576).toFixed(1).replace('.', ',')} MB). Le incluzi în backup?</p>
+      <p class="muted small">Fără PDF-uri, backup-ul e mic. Progresul cărților se păstrează, iar fișierele le poți reatașa oricând.</p>
+      <div class="modal-actions"><button class="btn ghost" data-close>Renunță</button>
+        <button class="btn alt" id="ex-with">Cu PDF-uri</button><button class="btn" id="ex-without">Fără PDF-uri</button></div>`, {
+      onMount: (el, close) => {
+        el.querySelector('#ex-with').addEventListener('click', () => { close(); doExport(true); });
+        el.querySelector('#ex-without').addEventListener('click', () => { close(); doExport(false); });
+      },
+    });
   });
   $('#p-import').addEventListener('click', () => {
     const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json,.json';
@@ -122,7 +137,7 @@ export function renderProfile(view) {
   $('#p-reset').addEventListener('click', async () => {
     if (!(await confirmBox('Ștergi DEFINITIV toate datele: progres, poze, eroi? Fă întâi un export dacă vrei să le păstrezi.', { ok: 'Șterge tot', danger: true }))) return;
     if (!(await confirmBox('Sigur? Acțiunea nu poate fi anulată.', { ok: 'Da, șterge', danger: true }))) return;
-    await clearPhotos(); resetState(); location.hash = '#/eroi'; location.reload();
+    await clearPhotos(); await clearPdfs(); resetState(); location.hash = '#/eroi'; location.reload();
   });
 }
 
